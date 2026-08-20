@@ -70,6 +70,21 @@ func TestParse(t *testing.T) {
 			wantError: errStopWithArgs.Error(),
 		},
 		{
+			name:  "reload",
+			input: []string{"reload"},
+			want:  Options{Command: CommandReload},
+		},
+		{
+			name:      "reload with detach",
+			input:     []string{"reload", "-d"},
+			wantError: errReloadWithDetach.Error(),
+		},
+		{
+			name:      "reload with args",
+			input:     []string{"reload", "db"},
+			wantError: errReloadWithArgs.Error(),
+		},
+		{
 			name:      "version with detach",
 			input:     []string{"version", "--detach"},
 			wantError: errVersionWithDetach.Error(),

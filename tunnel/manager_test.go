@@ -28,7 +28,7 @@ func (s *stubPortChecker) findListener(port string) (*processInfo, error) {
 func TestManagerRunTunnels(t *testing.T) {
 	mock := &executor.MockSSHExecutor{}
 	display := output.NewDisplay()
-	manager := NewManager(mock, display, nil)
+	manager := NewManager(mock, display, nil, display.RemoveTunnel)
 	manager.checker = &stubPortChecker{}
 
 	tunnels := map[string]config.Tunnel{
@@ -71,7 +71,7 @@ func TestManagerRunTunnels(t *testing.T) {
 func TestManagerRunSingleTunnel(t *testing.T) {
 	mock := &executor.MockSSHExecutor{}
 	display := output.NewDisplay()
-	manager := NewManager(mock, display, nil)
+	manager := NewManager(mock, display, nil, display.RemoveTunnel)
 	manager.checker = &stubPortChecker{}
 
 	tunnels := map[string]config.Tunnel{
@@ -112,7 +112,7 @@ func TestManagerRunSingleTunnel(t *testing.T) {
 func TestManagerCancellation(t *testing.T) {
 	mock := &executor.MockSSHExecutor{}
 	display := output.NewDisplay()
-	manager := NewManager(mock, display, nil)
+	manager := NewManager(mock, display, nil, display.RemoveTunnel)
 	manager.checker = &stubPortChecker{}
 
 	tunnels := map[string]config.Tunnel{
@@ -135,10 +135,74 @@ func TestManagerCancellation(t *testing.T) {
 	}
 }
 
+func TestManagerReload(t *testing.T) {
+	mock := &executor.MockSSHExecutor{}
+	display := output.NewDisplay()
+	manager := NewManager(mock, display, nil, display.RemoveTunnel)
+	manager.checker = &stubPortChecker{}
+
+	initial := map[string]config.Tunnel{
+		"api": {Host: "server1", Ports: []string{"3000:3000"}},
+		"db":  {Host: "server2", Ports: []string{"5432:5432"}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- manager.RunTunnels(ctx, initial)
+	}()
+
+	waitForCommandCount(t, mock, 2)
+
+	updated := map[string]config.Tunnel{
+		"api":   {Host: "server1", Ports: []string{"3000:3000"}}, // unchanged
+		"cache": {Host: "server3", Ports: []string{"6379:6379"}}, // new
+		// db intentionally omitted: should be stopped
+	}
+
+	if err := manager.Reload(updated); err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+
+	// api unchanged (no restart) + db stopped + cache started = 3 total commands ever issued
+	waitForCommandCount(t, mock, 3)
+
+	foundServer3 := false
+	for _, cmd := range mock.CommandsSnapshot() {
+		for _, arg := range cmd {
+			if arg == "server3" {
+				foundServer3 = true
+			}
+		}
+	}
+	if !foundServer3 {
+		t.Error("expected new 'cache' tunnel targeting server3 to have been started")
+	}
+
+	cancel()
+	if err := <-runDone; err != context.Canceled {
+		t.Errorf("expected context canceled, got %v", err)
+	}
+}
+
+func waitForCommandCount(t *testing.T, mock *executor.MockSSHExecutor, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if len(mock.CommandsSnapshot()) >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d commands, got %d", want, len(mock.CommandsSnapshot()))
+}
+
 func TestManagerRunTunnelPortInUse(t *testing.T) {
 	mock := &executor.MockSSHExecutor{}
 	display := output.NewDisplay()
-	manager := NewManager(mock, display, nil)
+	manager := NewManager(mock, display, nil, display.RemoveTunnel)
 	manager.checker = &stubPortChecker{
 		listeners: map[string]*processInfo{
 			"3000": {

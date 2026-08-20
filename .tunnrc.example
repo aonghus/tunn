@@ -38,3 +38,9 @@ tunnels:
       - 8443:8443      # HTTPS server
       - 9090:9090      # Metrics
       - 3000:3000      # Node.js app
+
+  # SOCKS proxy tunnel (like `ssh -D 1080 xyz.ucd.ie`)
+  proxy:
+    host: xyz.ucd.ie
+    dynamic_ports:
+      - 1080

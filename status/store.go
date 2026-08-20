@@ -58,6 +58,14 @@ func (s *Store) Update(name string, port string, state string) {
 	tun.Ports[port] = state
 }
 
+// RemoveTunnel drops all tracked state for a tunnel, e.g. after a config
+// reload removes it.
+func (s *Store) RemoveTunnel(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.tunnels, name)
+}
+
 // Snapshot returns a copy of the current tunnel states suitable for external use.
 func (s *Store) Snapshot() []Tunnel {
 	s.mu.RLock()

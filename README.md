@@ -19,6 +19,8 @@
 - 🧼 **Lean Go Module**: Depends only on `gopkg.in/yaml.v3`, keeping builds clean and portable
 - 🔧 **Native SSH Sessions**: Spawns the system `ssh` binary for each mapping, so keys and config behave exactly like your shell
 - 🎚️ **Per-Port Processes**: Launches one PID per port to pave the way for fine-grained lifecycle controls
+- 🔁 **Auto-Reconnect**: If a tunnel drops unexpectedly, it's retried automatically with exponential backoff
+- ♻️ **Live Reload**: `tunn reload` (or `SIGHUP`) re-reads `~/.tunnrc` and applies changes without disturbing unaffected tunnels
 
 
 
@@ -75,6 +77,11 @@ tunnels:
     host: cacheserver
     ports:
       - 6379:6379           # Redis
+
+  proxy:
+    host: xyz.ucd.ie
+    dynamic_ports:
+      - 1080                 # SOCKS proxy, like `ssh -D 1080 xyz.ucd.ie`
 ```
 
 ### Configuration Fields
@@ -82,6 +89,7 @@ tunnels:
 - `tunnels`: Map of tunnel names
 - `host`: SSH host alias from `~/.ssh/config`
 - `ports`: List of port mappings in `local:remote` format
+- `dynamic_ports` (optional): List of local ports for SOCKS dynamic application-level forwarding (SSH `-D`)
 - `user` (optional): SSH username (overrides `~/.ssh/config`)
 - `identity_file` (optional): Path to SSH private key
 
@@ -133,6 +141,20 @@ tunn stop
 
 The stop command asks the daemon to shut down cleanly, waits for it to exit, and reports success.
 
+### Reload the Config
+
+```bash
+tunn reload
+```
+
+Re-reads `~/.tunnrc` and applies the changes to a running daemon without disturbing unaffected tunnels: new tunnels are started, removed tunnels are stopped, and tunnels whose definition changed are restarted — tunnels left untouched in the config keep their existing connection. `tunn reload` respects whichever subset of tunnels the daemon was originally launched with (e.g. `tunn --detach api db` only reloads `api`/`db`).
+
+The same reload logic runs when a running `tunn` process (foreground or daemon) receives `SIGHUP`:
+
+```bash
+kill -HUP $(cat "$XDG_RUNTIME_DIR/tunn/daemon.pid")
+```
+
 ### Output Example
 
 ```
@@ -145,6 +167,10 @@ Tunnels Ready
     3306 ➜ 3306 [connecting]
     5432 ➜ 5432 [active]
 ```
+
+### Reconnection
+
+If a tunnel's SSH connection drops unexpectedly (network blip, server reboot, etc.), `tunn` automatically retries it with exponential backoff (starting at 1s, doubling up to a 30s cap, resetting once a connection goes active again). While retrying, the port's status shows `reconnecting in <duration>`. Stopping `tunn` (e.g. Ctrl+C) always takes priority and stops retries immediately.
 
 ## SSH Configuration
 

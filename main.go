@@ -52,6 +52,8 @@ func run() error {
 		return runStatusCommand(paths)
 	case cli.CommandStop:
 		return runStopCommand(paths)
+	case cli.CommandReload:
+		return runReloadCommand(paths)
 	case cli.CommandStart:
 		if opts.InternalDaemon {
 			return runDaemonCommand(paths, opts.TunnelNames)
@@ -91,7 +93,7 @@ func runStartCommand(paths daemon.Paths, opts *cli.Options) error {
 		return launchDaemon(paths, opts.TunnelNames)
 	}
 
-	if err := runForeground(selected); err != nil {
+	if err := runForeground(opts.TunnelNames, selected); err != nil {
 		if errors.Is(err, context.Canceled) {
 			fmt.Println("Exiting...")
 			return nil
@@ -180,7 +182,7 @@ func launchDaemon(paths daemon.Paths, tunnelNames []string) error {
 	return nil
 }
 
-func runForeground(tunnels map[string]config.Tunnel) error {
+func runForeground(tunnelNames []string, tunnels map[string]config.Tunnel) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	var shutdownOnce sync.Once
 	shutdown := func() {
@@ -188,24 +190,56 @@ func runForeground(tunnels map[string]config.Tunnel) error {
 	}
 	defer shutdown()
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-	go func() {
-		<-sigChan
-		fmt.Println("\nShutting down tunnels...")
-		cancel()
-	}()
-
 	display := output.NewDisplay()
 
 	sshExec := &executor.RealSSHExecutor{
 		OnStatusChange: display.UpdateStatus,
 	}
 
-	manager := tunnel.NewManager(sshExec, display, nil)
+	manager := tunnel.NewManager(sshExec, display, nil, display.RemoveTunnel)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigChan)
+	go func() {
+		for sig := range sigChan {
+			if sig == syscall.SIGHUP {
+				if selected, err := reloadTunnels(manager, tunnelNames); err != nil {
+					fmt.Fprintf(os.Stderr, "reload failed: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "reloaded (%d tunnel(s))\n", len(selected))
+				}
+				continue
+			}
+			fmt.Println("\nShutting down tunnels...")
+			cancel()
+			return
+		}
+	}()
 
 	return manager.RunTunnels(ctx, tunnels)
+}
+
+// reloadTunnels re-reads the config file, filters it by the original tunnel
+// name selection, and applies the result to a running manager.
+func reloadTunnels(manager *tunnel.Manager, tunnelNames []string) (map[string]config.Tunnel, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	selected := cfg.FilterTunnels(tunnelNames)
+	if len(selected) == 0 {
+		if len(tunnelNames) > 0 {
+			return nil, fmt.Errorf("no tunnels found matching: %v", tunnelNames)
+		}
+		return nil, fmt.Errorf("no tunnels defined in configuration")
+	}
+
+	if err := manager.Reload(selected); err != nil {
+		return nil, err
+	}
+	return selected, nil
 }
 
 func runDaemonCommand(paths daemon.Paths, tunnelNames []string) error {
@@ -243,27 +277,49 @@ func runDaemonCommand(paths daemon.Paths, tunnelNames []string) error {
 	}
 	defer shutdown()
 
+	sshExec := &executor.RealSSHExecutor{
+		OnStatusChange: store.Update,
+	}
+
+	manager := tunnel.NewManager(sshExec, nil, store.Update, store.RemoveTunnel)
+
+	reloadFn := func() (string, error) {
+		selected, err := reloadTunnels(manager, tunnelNames)
+		if err != nil {
+			return "", err
+		}
+		for name, tun := range selected {
+			store.EnsureTunnel(name, tun.Ports)
+		}
+		return fmt.Sprintf("reloaded (%d tunnel(s))", len(selected)), nil
+	}
+
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigChan)
 
 	go func() {
-		sig := <-sigChan
-		logger.Printf("received signal %v, initiating shutdown", sig)
-		shutdown()
+		for sig := range sigChan {
+			if sig == syscall.SIGHUP {
+				if msg, err := reloadFn(); err != nil {
+					logger.Printf("reload failed: %v", err)
+				} else {
+					logger.Printf("%s", msg)
+				}
+				continue
+			}
+			logger.Printf("received signal %v, initiating shutdown", sig)
+			shutdown()
+			return
+		}
 	}()
 
-	server := daemon.NewServer(paths, store, os.Getpid(), shutdown)
+	server := daemon.NewServer(paths, store, os.Getpid(), shutdown, reloadFn)
 	serverErrCh := make(chan error, 1)
 	go func() {
 		serverErrCh <- server.Run(ctx)
 	}()
 
-	sshExec := &executor.RealSSHExecutor{
-		OnStatusChange: store.Update,
-	}
-
-	manager := tunnel.NewManager(sshExec, nil, store.Update)
 	managerErrCh := make(chan error, 1)
 	go func() {
 		managerErrCh <- manager.RunTunnels(ctx, selected)
@@ -410,6 +466,35 @@ func runStopCommand(paths daemon.Paths) error {
 	}
 
 	fmt.Println("tunn daemon stopping — run 'tunn status' to verify if needed")
+	return nil
+}
+
+func runReloadCommand(paths daemon.Paths) error {
+	pid, running, err := daemon.CheckRunning(paths)
+	if err != nil {
+		return err
+	}
+	if !running {
+		return fmt.Errorf("tunn daemon not running; nothing to reload")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := daemon.SendReload(ctx, paths)
+	if err != nil {
+		return fmt.Errorf("failed to send reload command to daemon (pid %d): %w", pid, err)
+	}
+
+	if strings.HasPrefix(resp.Message, "reload failed") {
+		return fmt.Errorf("%s", resp.Message)
+	}
+
+	if resp.Message != "" {
+		fmt.Println(resp.Message)
+	} else {
+		fmt.Println("reload requested")
+	}
 	return nil
 }
 

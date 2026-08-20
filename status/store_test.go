@@ -38,3 +38,19 @@ func TestStore(t *testing.T) {
 		}
 	}
 }
+
+func TestStoreRemoveTunnel(t *testing.T) {
+	s := NewStore()
+	s.EnsureTunnel("db", []string{"5432"})
+	s.EnsureTunnel("cache", []string{"6379"})
+
+	s.RemoveTunnel("db")
+
+	snapshot := s.Snapshot()
+	if len(snapshot) != 1 {
+		t.Fatalf("expected 1 tunnel after removal, got %d", len(snapshot))
+	}
+	if snapshot[0].Name != "cache" {
+		t.Fatalf("expected remaining tunnel to be 'cache', got %q", snapshot[0].Name)
+	}
+}

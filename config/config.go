@@ -14,7 +14,8 @@ type Config struct {
 
 type Tunnel struct {
 	Host         string   `yaml:"host"`
-	Ports        []string `yaml:"ports"`
+	Ports        []string `yaml:"ports,omitempty"`
+	DynamicPorts []string `yaml:"dynamic_ports,omitempty"`
 	User         string   `yaml:"user,omitempty"`
 	IdentityFile string   `yaml:"identity_file,omitempty"`
 }

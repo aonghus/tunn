@@ -29,6 +29,11 @@ func (e *RealSSHExecutor) Execute(ctx context.Context, name string, tunnel confi
 			e.OnStatusChange(name, portMapping, "connecting")
 		}
 	}
+	for _, port := range tunnel.DynamicPorts {
+		if e.OnStatusChange != nil {
+			e.OnStatusChange(name, dynamicLabel(port), "connecting")
+		}
+	}
 
 	// Start SSH processes for each port
 	for _, portMapping := range tunnel.Ports {
@@ -38,6 +43,13 @@ func (e *RealSSHExecutor) Execute(ctx context.Context, name string, tunnel confi
 			e.executePortSSH(ctx, name, tunnel, port)
 		}(portMapping)
 	}
+	for _, dynPort := range tunnel.DynamicPorts {
+		wg.Add(1)
+		go func(port string) {
+			defer wg.Done()
+			e.executeDynamicSSH(ctx, name, tunnel, port)
+		}(dynPort)
+	}
 
 	// Wait for context cancellation (tunnels run until cancelled)
 	<-ctx.Done()
@@ -45,13 +57,70 @@ func (e *RealSSHExecutor) Execute(ctx context.Context, name string, tunnel confi
 	return ctx.Err()
 }
 
-func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string, tunnel config.Tunnel, portMapping string) error {
-	// Build SSH command for this specific port
-	args := []string{"-N"}
+func dynamicLabel(port string) string {
+	return fmt.Sprintf("%s:socks", port)
+}
 
+func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string, tunnel config.Tunnel, portMapping string) error {
 	ports := expandPort(portMapping, ":")
 	local, remote := ports[0], ports[1]
-	args = append(args, "-L", fmt.Sprintf("%s:localhost:%s", local, remote))
+	forwardArgs := []string{"-L", fmt.Sprintf("%s:localhost:%s", local, remote)}
+	return e.executeSSH(ctx, tunnelName, tunnel, portMapping, forwardArgs)
+}
+
+func (e *RealSSHExecutor) executeDynamicSSH(ctx context.Context, tunnelName string, tunnel config.Tunnel, port string) error {
+	forwardArgs := []string{"-D", port}
+	return e.executeSSH(ctx, tunnelName, tunnel, dynamicLabel(port), forwardArgs)
+}
+
+const (
+	initialReconnectBackoff = 1 * time.Second
+	maxReconnectBackoff     = 30 * time.Second
+)
+
+// executeSSH runs the given forward and, if the connection drops on its own
+// (rather than being stopped via ctx cancellation), retries it with
+// exponential backoff until it either reconnects or the context is done.
+func (e *RealSSHExecutor) executeSSH(ctx context.Context, tunnelName string, tunnel config.Tunnel, portMapping string, forwardArgs []string) error {
+	backoff := initialReconnectBackoff
+
+	for {
+		wasActive, err := e.runSSHOnce(ctx, tunnelName, tunnel, portMapping, forwardArgs)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if wasActive {
+			backoff = initialReconnectBackoff
+		}
+
+		if e.OnStatusChange != nil {
+			e.OnStatusChange(tunnelName, portMapping, fmt.Sprintf("reconnecting in %s", backoff))
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxReconnectBackoff {
+			backoff = maxReconnectBackoff
+		}
+
+		_ = err // already surfaced via OnStatusChange in runSSHOnce
+	}
+}
+
+// runSSHOnce starts a single ssh process for the given forward and blocks
+// until it exits, is cancelled via ctx, or fails to start. It reports
+// whether the connection ever reached the "active" state, which the caller
+// uses to decide whether to reset the reconnect backoff.
+func (e *RealSSHExecutor) runSSHOnce(ctx context.Context, tunnelName string, tunnel config.Tunnel, portMapping string, forwardArgs []string) (bool, error) {
+	// Build SSH command for this specific forward
+	args := []string{"-N"}
+	args = append(args, forwardArgs...)
 
 	if tunnel.IdentityFile != "" {
 		args = append(args, "-i", os.ExpandEnv(tunnel.IdentityFile))
@@ -70,7 +139,7 @@ func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string,
 		if e.OnStatusChange != nil {
 			e.OnStatusChange(tunnelName, portMapping, fmt.Sprintf("error - %s", err.Error()))
 		}
-		return err
+		return false, err
 	}
 
 	activeTimer := time.NewTimer(500 * time.Millisecond)
@@ -94,9 +163,11 @@ func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string,
 		done <- cmd.Wait()
 	}()
 
+	wasActive := false
 	for {
 		select {
 		case <-activeC:
+			wasActive = true
 			if e.OnStatusChange != nil {
 				e.OnStatusChange(tunnelName, portMapping, "active")
 			}
@@ -107,12 +178,12 @@ func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string,
 				if e.OnStatusChange != nil {
 					e.OnStatusChange(tunnelName, portMapping, fmt.Sprintf("error - %s", err.Error()))
 				}
-				return err
+				return wasActive, err
 			}
 			if e.OnStatusChange != nil {
 				e.OnStatusChange(tunnelName, portMapping, "stopped")
 			}
-			return nil
+			return wasActive, nil
 		case <-ctx.Done():
 			stopActiveTimer()
 			if e.OnStatusChange != nil {
@@ -132,7 +203,7 @@ func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string,
 			if e.OnStatusChange != nil {
 				e.OnStatusChange(tunnelName, portMapping, "stopped")
 			}
-			return ctx.Err()
+			return wasActive, ctx.Err()
 		}
 	}
 }
@@ -146,8 +217,19 @@ func expandPort(mapping string, sep string) []string {
 }
 
 type MockSSHExecutor struct {
+	mu             sync.Mutex
 	Commands       [][]string
 	OnStatusChange func(tunnelName string, port string, status string)
+}
+
+// CommandsSnapshot returns a copy of the commands recorded so far, safe to
+// call concurrently with in-flight Execute calls.
+func (m *MockSSHExecutor) CommandsSnapshot() [][]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	snapshot := make([][]string, len(m.Commands))
+	copy(snapshot, m.Commands)
+	return snapshot
 }
 
 func (m *MockSSHExecutor) Execute(ctx context.Context, name string, tunnel config.Tunnel) error {
@@ -156,6 +238,9 @@ func (m *MockSSHExecutor) Execute(ctx context.Context, name string, tunnel confi
 		ports := expandPort(portMapping, ":")
 		local, remote := ports[0], ports[1]
 		args = append(args, "-L", fmt.Sprintf("%s:localhost:%s", local, remote))
+	}
+	for _, port := range tunnel.DynamicPorts {
+		args = append(args, "-D", port)
 	}
 
 	if tunnel.IdentityFile != "" {
@@ -167,12 +252,18 @@ func (m *MockSSHExecutor) Execute(ctx context.Context, name string, tunnel confi
 	}
 
 	args = append(args, tunnel.Host)
+	m.mu.Lock()
 	m.Commands = append(m.Commands, args)
+	m.mu.Unlock()
 
 	if m.OnStatusChange != nil {
 		for _, portMapping := range tunnel.Ports {
 			m.OnStatusChange(name, portMapping, "connecting")
 			m.OnStatusChange(name, portMapping, "active")
+		}
+		for _, port := range tunnel.DynamicPorts {
+			m.OnStatusChange(name, dynamicLabel(port), "connecting")
+			m.OnStatusChange(name, dynamicLabel(port), "active")
 		}
 	}
 

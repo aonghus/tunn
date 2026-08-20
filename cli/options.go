@@ -12,6 +12,7 @@ const (
 	CommandStart Command = iota
 	CommandStatus
 	CommandStop
+	CommandReload
 	CommandVersion
 )
 
@@ -28,6 +29,8 @@ var (
 	errStatusWithArgs    = errors.New("status command does not accept tunnel names")
 	errStopWithDetach    = errors.New("stop command cannot be used with --detach")
 	errStopWithArgs      = errors.New("stop command does not accept tunnel names")
+	errReloadWithDetach  = errors.New("reload command cannot be used with --detach")
+	errReloadWithArgs    = errors.New("reload command does not accept tunnel names")
 	errVersionWithDetach = errors.New("version command cannot be used with --detach")
 	errVersionWithArgs   = errors.New("version command does not accept additional arguments")
 )
@@ -45,6 +48,9 @@ func Parse(args []string) (*Options, error) {
 			}
 			if opts.Command == CommandStop {
 				return nil, errStopWithDetach
+			}
+			if opts.Command == CommandReload {
+				return nil, errReloadWithDetach
 			}
 			if opts.Command == CommandVersion {
 				return nil, errVersionWithDetach
@@ -74,6 +80,17 @@ func Parse(args []string) (*Options, error) {
 				return nil, errStopWithArgs
 			}
 			opts.Command = CommandStop
+		case "reload":
+			if opts.Command != CommandStart {
+				return nil, fmt.Errorf("duplicate command")
+			}
+			if opts.Detach {
+				return nil, errReloadWithDetach
+			}
+			if len(opts.TunnelNames) > 0 {
+				return nil, errReloadWithArgs
+			}
+			opts.Command = CommandReload
 		case "version":
 			if opts.Command != CommandStart {
 				return nil, fmt.Errorf("duplicate command")
@@ -86,7 +103,7 @@ func Parse(args []string) (*Options, error) {
 			}
 			opts.Command = CommandVersion
 		case "-h", "--help":
-			return nil, fmt.Errorf("usage: tunn [--detach|-d] [tunnel ...]\n       tunn status\n       tunn version")
+			return nil, fmt.Errorf("usage: tunn [--detach|-d] [tunnel ...]\n       tunn status\n       tunn reload\n       tunn stop\n       tunn version")
 		default:
 			if len(arg) > 0 && arg[0] == '-' {
 				return nil, fmt.Errorf("unknown flag: %s", arg)
@@ -96,6 +113,9 @@ func Parse(args []string) (*Options, error) {
 			}
 			if opts.Command == CommandStop {
 				return nil, errStopWithArgs
+			}
+			if opts.Command == CommandReload {
+				return nil, errReloadWithArgs
 			}
 			if opts.Command == CommandVersion {
 				return nil, errVersionWithArgs

@@ -78,6 +78,17 @@ func (d *Display) UpdateStatus(tunnelName string, port string, status string) {
 	d.printStatuses()
 }
 
+// RemoveTunnel drops a tunnel from the display, e.g. after a config reload
+// removes it.
+func (d *Display) RemoveTunnel(tunnelName string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	delete(d.statuses, tunnelName)
+	delete(d.colorMap, tunnelName)
+	d.printStatuses()
+}
+
 func (d *Display) printStatuses() {
 	// Clear screen and reprint
 	fmt.Print("\033[H\033[2J")

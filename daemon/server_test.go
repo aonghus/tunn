@@ -14,7 +14,7 @@ func TestServerStatusHandshake(t *testing.T) {
 	store.EnsureTunnel("db", []string{"5432"})
 	store.Update("db", "5432", "active")
 
-	s := NewServer(Paths{}, store, 1234, nil)
+	s := NewServer(Paths{}, store, 1234, nil, nil)
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
 		clientConn.Close()
@@ -64,7 +64,7 @@ func TestServerStopCommand(t *testing.T) {
 
 	s := NewServer(Paths{}, store, 99, func() {
 		triggered <- struct{}{}
-	})
+	}, nil)
 
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
@@ -99,5 +99,68 @@ func TestServerStopCommand(t *testing.T) {
 	case <-triggered:
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("expected stop callback to be invoked")
+	}
+}
+
+func TestServerReloadCommand(t *testing.T) {
+	store := status.NewStore()
+
+	s := NewServer(Paths{}, store, 42, nil, func() (string, error) {
+		return "reloaded (1 tunnel(s))", nil
+	})
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+	})
+
+	go s.handleConnection(serverConn)
+
+	enc := json.NewEncoder(clientConn)
+	dec := json.NewDecoder(clientConn)
+
+	if err := enc.Encode(StatusRequest{Command: "reload"}); err != nil {
+		t.Fatalf("failed to encode request: %v", err)
+	}
+
+	var resp StatusResponse
+	if err := dec.Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Running {
+		t.Fatalf("expected running=true response, got %+v", resp)
+	}
+	if resp.Message != "reloaded (1 tunnel(s))" {
+		t.Fatalf("expected reload summary message, got %q", resp.Message)
+	}
+}
+
+func TestServerReloadCommandUnsupported(t *testing.T) {
+	store := status.NewStore()
+
+	s := NewServer(Paths{}, store, 42, nil, nil)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+	})
+
+	go s.handleConnection(serverConn)
+
+	enc := json.NewEncoder(clientConn)
+	dec := json.NewDecoder(clientConn)
+
+	if err := enc.Encode(StatusRequest{Command: "reload"}); err != nil {
+		t.Fatalf("failed to encode request: %v", err)
+	}
+
+	var resp StatusResponse
+	if err := dec.Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Message != "reload not supported" {
+		t.Fatalf("expected 'reload not supported' message, got %q", resp.Message)
 	}
 }

@@ -38,3 +38,9 @@ func QueryStatus(ctx context.Context, paths Paths) (*StatusResponse, error) {
 func SendStop(ctx context.Context, paths Paths) (*StatusResponse, error) {
 	return sendRequest(ctx, paths, "stop")
 }
+
+// SendReload asks the daemon to re-read its config file and apply changes
+// without stopping tunnels that are unaffected.
+func SendReload(ctx context.Context, paths Paths) (*StatusResponse, error) {
+	return sendRequest(ctx, paths, "reload")
+}

@@ -2,7 +2,10 @@ package executor
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -126,6 +129,77 @@ func TestMockSSHExecutorStatusCallbacks(t *testing.T) {
 		if i < len(statusChanges) && statusChanges[i].status != expected {
 			t.Errorf("Status change %d: expected %s, got %s", i, expected, statusChanges[i].status)
 		}
+	}
+}
+
+func TestMockSSHExecutorWithDynamicPorts(t *testing.T) {
+	mock := &MockSSHExecutor{}
+
+	tunnel := config.Tunnel{
+		Host:         "testserver",
+		DynamicPorts: []string{"1080"},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := mock.Execute(ctx, "test", tunnel)
+	if err != context.DeadlineExceeded {
+		t.Errorf("Expected context deadline exceeded, got %v", err)
+	}
+
+	if len(mock.Commands) != 1 {
+		t.Fatalf("Expected 1 command, got %d", len(mock.Commands))
+	}
+
+	cmdStr := strings.Join(mock.Commands[0], " ")
+	if !strings.Contains(cmdStr, "-D 1080") {
+		t.Error("Command should contain '-D 1080' for dynamic forwarding")
+	}
+}
+
+func TestRealSSHExecutorReconnectsOnDrop(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "ssh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("failed to write fake ssh script: %v", err)
+	}
+
+	origPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+origPath); err != nil {
+		t.Fatalf("failed to set PATH: %v", err)
+	}
+	defer os.Setenv("PATH", origPath)
+
+	var mu sync.Mutex
+	var statuses []string
+	realExec := &RealSSHExecutor{
+		OnStatusChange: func(name, port, status string) {
+			mu.Lock()
+			statuses = append(statuses, status)
+			mu.Unlock()
+		},
+	}
+
+	tunnel := config.Tunnel{Host: "testserver", Ports: []string{"8080:8080"}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+
+	realExec.Execute(ctx, "test", tunnel)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	reconnectAttempts := 0
+	for _, s := range statuses {
+		if strings.HasPrefix(s, "reconnecting") {
+			reconnectAttempts++
+		}
+	}
+
+	if reconnectAttempts < 1 {
+		t.Errorf("expected at least one reconnect attempt after the connection dropped, got statuses: %v", statuses)
 	}
 }
 

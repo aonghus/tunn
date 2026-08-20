@@ -28,21 +28,25 @@ type StatusResponse struct {
 
 // Server handles IPC communication with CLI clients.
 type Server struct {
-	paths  Paths
-	store  *status.Store
-	pid    int
-	mu     sync.Mutex
-	ln     net.Listener
-	stopFn func()
+	paths    Paths
+	store    *status.Store
+	pid      int
+	mu       sync.Mutex
+	ln       net.Listener
+	stopFn   func()
+	reloadFn func() (string, error)
 }
 
 // NewServer constructs a server bound to the given socket and status store.
-func NewServer(paths Paths, store *status.Store, pid int, stopFn func()) *Server {
+// reloadFn, if non-nil, is invoked to service "reload" requests and should
+// return a short human-readable summary or an error.
+func NewServer(paths Paths, store *status.Store, pid int, stopFn func(), reloadFn func() (string, error)) *Server {
 	return &Server{
-		paths:  paths,
-		store:  store,
-		pid:    pid,
-		stopFn: stopFn,
+		paths:    paths,
+		store:    store,
+		pid:      pid,
+		stopFn:   stopFn,
+		reloadFn: reloadFn,
 	}
 }
 
@@ -115,6 +119,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 		s.handleStatus(conn)
 	case "stop":
 		s.handleStop(conn)
+	case "reload":
+		s.handleReload(conn)
 	default:
 		return
 	}
@@ -129,6 +135,36 @@ func (s *Server) handleStatus(conn net.Conn) {
 		PID:     s.pid,
 		Tunnels: snapshot,
 	}
+	_ = encoder.Encode(resp)
+}
+
+func (s *Server) handleReload(conn net.Conn) {
+	encoder := json.NewEncoder(conn)
+
+	if s.reloadFn == nil {
+		resp := StatusResponse{
+			Running: true,
+			Mode:    "daemon",
+			PID:     s.pid,
+			Message: "reload not supported",
+			Tunnels: s.store.Snapshot(),
+		}
+		_ = encoder.Encode(resp)
+		return
+	}
+
+	message, err := s.reloadFn()
+	resp := StatusResponse{
+		Running: true,
+		Mode:    "daemon",
+		PID:     s.pid,
+	}
+	if err != nil {
+		resp.Message = fmt.Sprintf("reload failed: %v", err)
+	} else {
+		resp.Message = message
+	}
+	resp.Tunnels = s.store.Snapshot()
 	_ = encoder.Encode(resp)
 }
 
