@@ -15,14 +15,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/strandnerd/tunn/cli"
-	"github.com/strandnerd/tunn/config"
-	"github.com/strandnerd/tunn/daemon"
-	"github.com/strandnerd/tunn/executor"
-	"github.com/strandnerd/tunn/output"
-	"github.com/strandnerd/tunn/status"
-	"github.com/strandnerd/tunn/tunnel"
-	"github.com/strandnerd/tunn/version"
+	"github.com/aonghus/tunn/cli"
+	"github.com/aonghus/tunn/config"
+	"github.com/aonghus/tunn/daemon"
+	"github.com/aonghus/tunn/executor"
+	"github.com/aonghus/tunn/output"
+	"github.com/aonghus/tunn/status"
+	"github.com/aonghus/tunn/tunnel"
+	"github.com/aonghus/tunn/version"
 )
 
 const daemonPreviewDuration = 2 * time.Second

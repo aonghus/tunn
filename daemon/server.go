@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/strandnerd/tunn/status"
+	"github.com/aonghus/tunn/status"
 )
 
 // StatusRequest represents an IPC command from the CLI.

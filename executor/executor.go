@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/strandnerd/tunn/config"
+	"github.com/aonghus/tunn/config"
 )
 
 type SSHExecutor interface {

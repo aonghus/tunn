@@ -50,7 +50,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p bin
-          go build -ldflags "-s -w -X github.com/strandnerd/tunn/version.Version=${GITHUB_REF_NAME}" -o bin/tunn-${{ matrix.goos }}-${{ matrix.goarch }} .
+          go build -ldflags "-s -w -X github.com/aonghus/tunn/version.Version=${GITHUB_REF_NAME}" -o bin/tunn-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

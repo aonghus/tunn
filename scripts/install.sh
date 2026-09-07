@@ -2,7 +2,7 @@
 
 set -eu
 
-DEFAULT_REPO="strandnerd/tunn"
+DEFAULT_REPO="aonghus/tunn"
 REPO="${TUNN_INSTALL_GITHUB_REPO:-$DEFAULT_REPO}"
 
 if [ "$REPO" != "$DEFAULT_REPO" ]; then

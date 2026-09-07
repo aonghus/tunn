@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/strandnerd/tunn/status"
+	"github.com/aonghus/tunn/status"
 )
 
 func TestServerStatusHandshake(t *testing.T) {

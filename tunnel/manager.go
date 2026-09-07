@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/strandnerd/tunn/config"
-	"github.com/strandnerd/tunn/executor"
-	"github.com/strandnerd/tunn/output"
+	"github.com/aonghus/tunn/config"
+	"github.com/aonghus/tunn/executor"
+	"github.com/aonghus/tunn/output"
 )
 
 // runningTunnel tracks a tunnel currently being executed so it can be

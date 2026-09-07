@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/strandnerd/tunn/config"
+	"github.com/aonghus/tunn/config"
 )
 
 func TestMockSSHExecutorWithUser(t *testing.T) {

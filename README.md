@@ -1,4 +1,4 @@
-![GitHub License](https://img.shields.io/github/license/strandnerd/tunn) ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/strandnerd/tunn/ci.yml) ![GitHub Release](https://img.shields.io/github/v/release/strandnerd/tunn) ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/strandnerd/tunn)
+![GitHub License](https://img.shields.io/github/license/aonghus/tunn) ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/aonghus/tunn/ci.yml) ![GitHub Release](https://img.shields.io/github/v/release/aonghus/tunn) ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/aonghus/tunn)
 
 
 
@@ -34,19 +34,19 @@
 ### Quick Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/strandnerd/tunn/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/aonghus/tunn/main/scripts/install.sh | sh
 ```
 
 ### From Go Install
 
 ```bash
-go install github.com/strandnerd/tunn@latest
+go install github.com/aonghus/tunn@latest
 ```
 
 ### Build Locally
 
 ```bash
-git clone https://github.com/strandnerd/tunn.git
+git clone https://github.com/aonghus/tunn.git
 cd tunn
 go build -o tunn
 sudo mv tunn /usr/local/bin/

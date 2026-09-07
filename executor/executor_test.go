@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/strandnerd/tunn/config"
+	"github.com/aonghus/tunn/config"
 )
 
 func TestMockSSHExecutor(t *testing.T) {

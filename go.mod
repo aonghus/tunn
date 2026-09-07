@@ -1,4 +1,4 @@
-module github.com/strandnerd/tunn
+module github.com/aonghus/tunn
 
 go 1.25.1
 

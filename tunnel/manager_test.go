@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/strandnerd/tunn/config"
-	"github.com/strandnerd/tunn/executor"
-	"github.com/strandnerd/tunn/output"
+	"github.com/aonghus/tunn/config"
+	"github.com/aonghus/tunn/executor"
+	"github.com/aonghus/tunn/output"
 )
 
 type stubPortChecker struct {
