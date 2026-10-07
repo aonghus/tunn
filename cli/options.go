@@ -21,12 +21,14 @@ type Options struct {
 	Command        Command
 	Detach         bool
 	InternalDaemon bool
+	Ping           bool
 	TunnelNames    []string
 }
 
 var (
 	errStatusWithDetach  = errors.New("status command cannot be used with --detach")
 	errStatusWithArgs    = errors.New("status command does not accept tunnel names")
+	errPingWithoutStatus = errors.New("--ping can only be used with the status command")
 	errStopWithDetach    = errors.New("stop command cannot be used with --detach")
 	errStopWithArgs      = errors.New("stop command does not accept tunnel names")
 	errReloadWithDetach  = errors.New("reload command cannot be used with --detach")
@@ -56,6 +58,8 @@ func Parse(args []string) (*Options, error) {
 				return nil, errVersionWithDetach
 			}
 			opts.Detach = true
+		case "--ping":
+			opts.Ping = true
 		case "--internal-daemon":
 			opts.InternalDaemon = true
 		case "status":
@@ -103,7 +107,7 @@ func Parse(args []string) (*Options, error) {
 			}
 			opts.Command = CommandVersion
 		case "-h", "--help":
-			return nil, fmt.Errorf("usage: tunn [--detach|-d] [tunnel ...]\n       tunn status\n       tunn reload\n       tunn stop\n       tunn version")
+			return nil, fmt.Errorf("usage: tunn [--detach|-d] [tunnel ...]\n       tunn status [--ping]\n       tunn reload\n       tunn stop\n       tunn version")
 		default:
 			if len(arg) > 0 && arg[0] == '-' {
 				return nil, fmt.Errorf("unknown flag: %s", arg)
@@ -122,6 +126,10 @@ func Parse(args []string) (*Options, error) {
 			}
 			opts.TunnelNames = append(opts.TunnelNames, arg)
 		}
+	}
+
+	if opts.Ping && opts.Command != CommandStatus {
+		return nil, errPingWithoutStatus
 	}
 
 	return opts, nil

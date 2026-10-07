@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -49,7 +50,7 @@ func run() error {
 
 	switch opts.Command {
 	case cli.CommandStatus:
-		return runStatusCommand(paths)
+		return runStatusCommand(paths, opts.Ping)
 	case cli.CommandStop:
 		return runStopCommand(paths)
 	case cli.CommandReload:
@@ -366,7 +367,37 @@ func runDaemonCommand(paths daemon.Paths, tunnelNames []string) error {
 	return nil
 }
 
-func runStatusCommand(paths daemon.Paths) error {
+const (
+	pingAddress = "www.google.com:443"
+	pingTimeout = 3 * time.Second
+)
+
+// tcpPing dials addr over TCP and returns how long the handshake took.
+func tcpPing(addr string, timeout time.Duration) (time.Duration, error) {
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return 0, err
+	}
+	elapsed := time.Since(start)
+	_ = conn.Close()
+	return elapsed, nil
+}
+
+func networkCheck() string {
+	rtt, err := tcpPing(pingAddress, pingTimeout)
+	if err != nil {
+		return fmt.Sprintf("Network: unreachable (%s: %v)", pingAddress, err)
+	}
+	return fmt.Sprintf("Network: ok (%s, %s)", pingAddress, rtt.Round(time.Millisecond))
+}
+
+func runStatusCommand(paths daemon.Paths, ping bool) error {
+	var networkLine string
+	if ping {
+		networkLine = networkCheck()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -380,6 +411,9 @@ func runStatusCommand(paths daemon.Paths) error {
 			return fmt.Errorf("daemon (pid %d) is unreachable: %v", pid, err)
 		}
 		fmt.Println("tunn daemon not running")
+		if networkLine != "" {
+			fmt.Println(networkLine)
+		}
 		return nil
 	}
 
@@ -389,6 +423,9 @@ func runStatusCommand(paths daemon.Paths) error {
 	}
 
 	if !isTerminal(os.Stdout) {
+		if networkLine != "" {
+			fmt.Println(networkLine)
+		}
 		fmt.Printf("Daemon: %s (pid %d, mode %s)\n", state, resp.PID, resp.Mode)
 		if len(resp.Tunnels) == 0 {
 			fmt.Println("No tunnels managed by daemon")
@@ -423,6 +460,9 @@ func runStatusCommand(paths daemon.Paths) error {
 	}
 	if hasErrors {
 		summary += " — errors detected"
+	}
+	if networkLine != "" {
+		summary += "\n" + networkLine
 	}
 	display.SetFooter(summary)
 	return nil

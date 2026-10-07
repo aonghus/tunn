@@ -35,6 +35,16 @@ func TestParse(t *testing.T) {
 			want:  Options{Command: CommandStatus},
 		},
 		{
+			name:  "status with ping",
+			input: []string{"status", "--ping"},
+			want:  Options{Command: CommandStatus, Ping: true},
+		},
+		{
+			name:      "ping without status",
+			input:     []string{"--ping"},
+			wantError: errPingWithoutStatus.Error(),
+		},
+		{
 			name:  "version",
 			input: []string{"version"},
 			want:  Options{Command: CommandVersion},

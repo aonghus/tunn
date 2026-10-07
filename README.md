@@ -133,6 +133,8 @@ tunn status
 
 The status command contacts the daemon's Unix socket, reporting the PID, mode, and the latest port states for each managed tunnel. If no daemon is running, a friendly message is printed instead.
 
+Add `--ping` (`tunn status --ping`) to first run a TCP ping against `www.google.com:443` and report whether the network is reachable and the connect time.
+
 ### Stop the Daemon
 
 ```bash
