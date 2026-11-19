@@ -8,9 +8,9 @@ import (
 
 func TestLoadConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	homeDir := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", homeDir)
+	// os.UserHomeDir reads HOME on Unix and USERPROFILE on Windows.
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	configContent := `
 tunnels:
@@ -78,9 +78,9 @@ tunnels:
 
 func TestLoadConfigNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	homeDir := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", homeDir)
+	// os.UserHomeDir reads HOME on Unix and USERPROFILE on Windows.
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	_, err := Load()
 	if err == nil {

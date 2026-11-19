@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -160,8 +161,12 @@ func TestMockSSHExecutorWithDynamicPorts(t *testing.T) {
 
 func TestRealSSHExecutorReconnectsOnDrop(t *testing.T) {
 	dir := t.TempDir()
-	scriptPath := filepath.Join(dir, "ssh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	// A fake ssh that exits immediately, simulating a dropped connection.
+	scriptPath, script := filepath.Join(dir, "ssh"), "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		scriptPath, script = filepath.Join(dir, "ssh.bat"), "@exit /b 0\r\n"
+	}
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write fake ssh script: %v", err)
 	}
 
