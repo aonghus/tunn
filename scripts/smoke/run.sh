@@ -57,6 +57,32 @@ status_says() { "$TUNN" status 2>&1 | grep -q -- "$1"; }
 daemon_dead() { ! pid_alive "$1"; }
 daemon_pid() { "$TUNN" status 2>/dev/null | sed -n 's/.*(pid \([0-9][0-9]*\).*/\1/p' | head -n1; }
 
+# Narrows down a failed forward: tunn vs. ssh vs. the backend, and whether
+# the remote side's "localhost" resolving to ::1 matters.
+diagnose_forward() {
+  echo "----- diagnostics -----"
+  "$TUNN" status 2>&1
+  echo "# backend directly:"
+  curl -sS --max-time 3 "http://127.0.0.1:$REMOTE_PORT/marker.txt" 2>&1
+  echo "# through tunn's forward:"
+  curl -sS --max-time 3 "http://127.0.0.1:$LOCAL_PORT/marker.txt" 2>&1
+  if is_windows; then
+    netstat -ano | grep -E ":(18080|18081|1809[0-9]) "
+  fi
+  local port=18090 target
+  for target in localhost 127.0.0.1; do
+    echo "# manual ssh -L $port:$target:$REMOTE_PORT:"
+    ssh -v -N -L "$port:$target:$REMOTE_PORT" tunn-smoke >"$work/ssh-$port.log" 2>&1 &
+    local sp=$!
+    sleep 3
+    curl -sS --max-time 3 "http://127.0.0.1:$port/marker.txt" 2>&1
+    kill_tree "$sp"
+    grep -vE "^debug1: (Reading|Applying|identity file|Local version|Remote protocol|compat|kex|SSH2_MSG|Server host key|load_hostkeys|Will attempt|Offering|Server accepts|Authentication succeeded|channel 0: new|Requesting|Entering|pledge|client_input|Sending|expecting|rekey|Remote: |Next authentication|Authentications that|Connecting to|Connection established|checking match|configuration requests|hostkeys_find)" "$work/ssh-$port.log" | tail -n 25
+    port=$((port + 1))
+  done
+  echo "-----------------------"
+}
+
 work=$(mktemp -d)
 bg_pids=()
 daemon_pids=()
@@ -145,6 +171,7 @@ if wait_for 15 fetch_marker; then
   pass "HTTP request flows through the tunnel"
 else
   fail "HTTP request through 127.0.0.1:$LOCAL_PORT failed"
+  diagnose_forward
 fi
 
 # --- single-instance guard ---------------------------------------------------
