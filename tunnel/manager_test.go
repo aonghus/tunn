@@ -98,10 +98,10 @@ func TestManagerRunSingleTunnel(t *testing.T) {
 	found3000 := false
 	found4000 := false
 	for i := 0; i < len(cmd)-1; i++ {
-		if cmd[i] == "-L" && cmd[i+1] == "3000:localhost:3000" {
+		if cmd[i] == "-L" && cmd[i+1] == "3000:127.0.0.1:3000" {
 			found3000 = true
 		}
-		if cmd[i] == "-L" && cmd[i+1] == "4000:localhost:4000" {
+		if cmd[i] == "-L" && cmd[i+1] == "4000:127.0.0.1:4000" {
 			found4000 = true
 		}
 	}

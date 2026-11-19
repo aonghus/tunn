@@ -14,6 +14,7 @@ set -u
 LOCAL_PORT=18080   # tunn listens here
 REMOTE_PORT=18081  # http backend, reached through sshd
 BUSY_PORT=18082    # held by another process to provoke a conflict
+EXPLICIT_PORT=18083 # forward written as local:host:remote
 
 failures=0
 pass() { echo "PASS: $*"; }
@@ -51,7 +52,7 @@ wait_for() {
   done
 }
 
-fetch_marker() { [ "$(curl -fsS --max-time 3 "http://127.0.0.1:$LOCAL_PORT/marker.txt" 2>/dev/null)" = tunn-smoke-ok ]; }
+fetch_marker() { [ "$(curl -fsS --max-time 3 "http://127.0.0.1:${1:-$LOCAL_PORT}/marker.txt" 2>/dev/null)" = tunn-smoke-ok ]; }
 port_closed() { ! curl -fsS --max-time 2 "http://127.0.0.1:$LOCAL_PORT/marker.txt" >/dev/null 2>&1; }
 status_says() { "$TUNN" status 2>&1 | grep -q -- "$1"; }
 daemon_dead() { ! pid_alive "$1"; }
@@ -128,13 +129,9 @@ fi
 
 mkdir -p "$work/www"
 echo tunn-smoke-ok > "$work/www/marker.txt"
-# tunn forwards to "localhost" on the remote side. Windows' sshd resolves that to
-# ::1 and does not fall back to 127.0.0.1, so there the backend listens on both
-# stacks (http.server binds "::" dual-stack). This is a property of the test
-# sshd, not of the tunn client under test.
-backend_bind=127.0.0.1
-is_windows && backend_bind=::
-(cd "$work/www" && exec "$PY" -m http.server "$REMOTE_PORT" --bind "$backend_bind") >"$work/http.log" 2>&1 &
+# IPv4 only on purpose: on Windows, whose sshd resolves "localhost" to ::1
+# only, this checks that tunn forwards to 127.0.0.1 by default.
+(cd "$work/www" && exec "$PY" -m http.server "$REMOTE_PORT" --bind 127.0.0.1) >"$work/http.log" 2>&1 &
 bg_pids+=($!)
 
 cat > "$home/.tunnrc" <<EOF
@@ -143,6 +140,7 @@ tunnels:
     host: tunn-smoke
     ports:
       - "$LOCAL_PORT:$REMOTE_PORT"
+      - "$EXPLICIT_PORT:127.0.0.1:$REMOTE_PORT"
   conflict:
     host: tunn-smoke
     ports:
@@ -178,6 +176,12 @@ if wait_for 15 fetch_marker; then
 else
   fail "HTTP request through 127.0.0.1:$LOCAL_PORT failed"
   diagnose_forward
+fi
+
+if wait_for 15 fetch_marker "$EXPLICIT_PORT"; then
+  pass "HTTP request flows through a local:host:remote forward"
+else
+  fail "HTTP request through 127.0.0.1:$EXPLICIT_PORT (local:host:remote form) failed"
 fi
 
 # --- single-instance guard ---------------------------------------------------

@@ -88,7 +88,9 @@ tunnels:
 
 - `tunnels`: Map of tunnel names
 - `host`: SSH host alias from `~/.ssh/config`
-- `ports`: List of port mappings in `local:remote` format
+- `ports`: List of port mappings, each forwarded with `ssh -L`:
+  - `3000` or `3000:4000` (`local:remote`) connects to `127.0.0.1` on the remote host
+  - `5432:db.internal:5432` (`local:host:remote`) connects to `host` as seen from the remote host, e.g. `localhost`, a private hostname, or `[::1]` for IPv6
 - `dynamic_ports` (optional): List of local ports for SOCKS dynamic application-level forwarding (SSH `-D`)
 - `user` (optional): SSH username (overrides `~/.ssh/config`)
 - `identity_file` (optional): Path to SSH private key
