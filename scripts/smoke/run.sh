@@ -128,7 +128,13 @@ fi
 
 mkdir -p "$work/www"
 echo tunn-smoke-ok > "$work/www/marker.txt"
-(cd "$work/www" && exec "$PY" -m http.server "$REMOTE_PORT" --bind 127.0.0.1) >"$work/http.log" 2>&1 &
+# tunn forwards to "localhost" on the remote side. Windows' sshd resolves that to
+# ::1 and does not fall back to 127.0.0.1, so there the backend listens on both
+# stacks (http.server binds "::" dual-stack). This is a property of the test
+# sshd, not of the tunn client under test.
+backend_bind=127.0.0.1
+is_windows && backend_bind=::
+(cd "$work/www" && exec "$PY" -m http.server "$REMOTE_PORT" --bind "$backend_bind") >"$work/http.log" 2>&1 &
 bg_pids+=($!)
 
 cat > "$home/.tunnrc" <<EOF
