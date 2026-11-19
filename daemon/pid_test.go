@@ -1,12 +1,33 @@
-//go:build unix
-
 package daemon
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// exitedPID returns the PID of a child process that has already exited.
+func exitedPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to run child process: %v", err)
+	}
+	return cmd.Process.Pid
+}
+
+func TestIsProcessRunning(t *testing.T) {
+	if !isProcessRunning(os.Getpid()) {
+		t.Fatal("expected the current process to be running")
+	}
+	if pid := exitedPID(t); isProcessRunning(pid) {
+		t.Fatalf("expected exited process %d not to be running", pid)
+	}
+	if isProcessRunning(0) || isProcessRunning(-1) {
+		t.Fatal("expected non-positive PIDs not to be running")
+	}
+}
 
 func TestPIDLifecycle(t *testing.T) {
 	dir := t.TempDir()
@@ -39,8 +60,8 @@ func TestPIDLifecycle(t *testing.T) {
 		t.Fatalf("expected pid %d, got %d", os.Getpid(), pid)
 	}
 
-	// Write a clearly invalid PID.
-	if err := WritePID(paths, 999999); err != nil {
+	// Write the PID of a process that has exited.
+	if err := WritePID(paths, exitedPID(t)); err != nil {
 		t.Fatalf("WritePID failed: %v", err)
 	}
 	if err := os.WriteFile(paths.SocketFile, []byte("stub"), 0o600); err != nil {

@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -227,6 +228,38 @@ func TestManagerRunTunnelPortInUse(t *testing.T) {
 		t.Fatalf("unexpected error message: %v", err)
 	}
 
+	if len(mock.Commands) != 0 {
+		t.Fatalf("expected executor not to run, but got %d commands", len(mock.Commands))
+	}
+}
+
+func TestManagerRunTunnelPortInUseByUnknownProcess(t *testing.T) {
+	mock := &executor.MockSSHExecutor{}
+	manager := NewManager(mock, nil, nil, nil)
+	manager.checker = &stubPortChecker{
+		listeners: map[string]*processInfo{"3000": {}},
+	}
+
+	err := manager.runTunnel(context.Background(), "api", config.Tunnel{Host: "server1", Ports: []string{"3000:3000"}})
+	if err == nil || err.Error() != "port 3000 is being used by another process" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestManagerRunTunnelReportsCheckerError(t *testing.T) {
+	mock := &executor.MockSSHExecutor{}
+	statuses := map[string]string{}
+	notify := func(name, mapping, status string) { statuses[mapping] = status }
+	manager := NewManager(mock, nil, notify, nil)
+	manager.checker = &stubPortChecker{err: errors.New("boom")}
+
+	err := manager.runTunnel(context.Background(), "api", config.Tunnel{Host: "server1", Ports: []string{"3000:3000"}})
+	if err == nil {
+		t.Fatal("expected an error from the port checker")
+	}
+	if got := statuses["3000:3000"]; got != "error - boom" {
+		t.Fatalf("expected the error to be reported as status, got %q", got)
+	}
 	if len(mock.Commands) != 0 {
 		t.Fatalf("expected executor not to run, but got %d commands", len(mock.Commands))
 	}
