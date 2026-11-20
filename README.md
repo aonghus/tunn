@@ -46,7 +46,7 @@ Windows (PowerShell, no administrator rights needed):
 irm https://raw.githubusercontent.com/aonghus/tunn/main/scripts/install.ps1 | iex
 ```
 
-This installs `tunn.exe` to `%LOCALAPPDATA%\Programs\tunn` and adds it to your user `PATH`.
+This installs `tunn.exe` to `%LOCALAPPDATA%\Programs\tunn`, checks it against the release checksums, and adds it to your user `PATH`. Run it in PowerShell or Windows Terminal, not Command Prompt. See [Windows](#windows) for setting up ssh keys and your first tunnel.
 
 ### Download a Binary
 
@@ -222,11 +222,71 @@ Host database
 - Valid SSH configuration (`~/.ssh/config`, or `%USERPROFILE%\.ssh\config` on Windows)
 - macOS, Linux, or Windows 10 (1803) or later
 
-### Windows Notes
+## Windows
+
+Use the PowerShell installer above. The `.exe` files on the releases page are tunn itself, not an installer, so double-clicking one just opens and closes a console window. A browser download may also trigger an "unrecognized app" warning because the binaries are not code-signed; the PowerShell installer avoids that.
+
+All commands below are for PowerShell.
+
+### 1. Create an SSH key
+
+Skip this if you already have a key in `$HOME\.ssh`.
+
+```powershell
+ssh-keygen -t rsa -b 4096
+```
+
+Press Enter to accept the default location (`$HOME\.ssh\id_rsa`), and choose empty for passwordless. `ssh-keygen -t ed25519` also works and gives a shorter key; if you use it, replace `id_rsa` with `id_ed25519` below. Avoid `-t dsa`: current OpenSSH no longer accepts DSA keys.
+
+### 2. Copy the key to the server
+
+Windows has no `ssh-copy-id`, so append the public key to the server's `authorized_keys` yourself (for a Linux or macOS server):
+
+```powershell
+Get-Content $HOME\.ssh\id_rsa.pub | ssh user@server.example.com "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+```
+
+You will be asked for your server password once. Then check that key login works:
+
+```powershell
+ssh user@server.example.com
+```
+
+### 3. Add the server to your SSH config
+
+```powershell
+notepad $HOME\.ssh\config
+```
+
+```ssh
+Host myserver
+    HostName server.example.com
+    User user
+    IdentityFile ~/.ssh/id_rsa
+```
+
+`ssh myserver` should now log in without a password (or with only your key passphrase).
+
+### 4. Describe your tunnels and start them
+
+```powershell
+notepad $HOME\.tunnrc
+```
+
+The file uses the same YAML as on macOS and Linux (see [Configuration](#configuration)). Then:
+
+```powershell
+tunn --detach
+tunn status
+tunn stop
+```
+
+### Differences from macOS and Linux
 
 - When `lsof` is not available (always on Windows), port conflicts are detected by trying to bind the port, so `tunn status` reports "being used by another process" without naming it.
 - The daemon runs without a console window and keeps running after the terminal that started it closes. Use `tunn stop` to end it.
 - `SIGHUP` does not exist on Windows; use `tunn reload`.
+- To upgrade, run `tunn stop`, then run the installer again.
 
 ## Daemon Runtime Files
 
