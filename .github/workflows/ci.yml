@@ -62,11 +62,13 @@ jobs:
         shell: [pwsh, powershell]
         include:
           # 32-bit Windows PowerShell: reports x86 for itself, so the installer
-          # must still pick the machine's real architecture.
+          # must still pick the machine's real architecture. A custom shell's
+          # script file has no .ps1 extension, so its text is run with
+          # Invoke-Expression; dot-sourcing it silently does nothing.
           - os: windows-latest
-            shell: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -command ". '{0}'"
+            shell: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command "$ErrorActionPreference = 'Stop'; Invoke-Expression (Get-Content -Raw '{0}')"
           - os: windows-11-arm
-            shell: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -command ". '{0}'"
+            shell: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command "$ErrorActionPreference = 'Stop'; Invoke-Expression (Get-Content -Raw '{0}')"
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -134,3 +136,10 @@ jobs:
           tunn stop | Out-Host
 
           if ($fail -gt 0) { throw "$fail check(s) failed" }
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP 'installer-verified') -Value 'ok'
+
+      # Guards against a shell that exits 0 without running the steps.
+      - name: Confirm the checks ran
+        shell: pwsh
+        run: |
+          if (-not (Test-Path (Join-Path $env:RUNNER_TEMP 'installer-verified'))) { throw 'Verify step did not run its checks' }
