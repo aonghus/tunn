@@ -19,28 +19,45 @@
     $repo = 'aonghus/tunn'
     $base = "https://github.com/$repo/releases/latest/download"
 
-    # Use the OS architecture, not the shell's: an x64 PowerShell running under
-    # emulation on Windows on Arm reports AMD64 in PROCESSOR_ARCHITECTURE.
-    $osArch = $null
-    try {
-        $osArch = [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-    } catch {
-        $osArch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
+    # Find the machine's real architecture, not the shell's: a 32-bit or
+    # emulated x64 PowerShell on Windows on Arm reports x86 or AMD64 for itself.
+    # The system environment in the registry always holds the native value;
+    # the other sources are fallbacks, tried in order.
+    $sources = [ordered]@{
+        'registry'               = { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction Stop).PROCESSOR_ARCHITECTURE }
+        'PROCESSOR_ARCHITEW6432' = { $env:PROCESSOR_ARCHITEW6432 }
+        'PROCESSOR_ARCHITECTURE' = { $env:PROCESSOR_ARCHITECTURE }
+        'OSArchitecture'         = { [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture }
     }
-    $arch = switch ($osArch) {
-        { $_ -in 'X64', 'AMD64' } { 'amd64'; break }
-        { $_ -in 'Arm64', 'ARM64' } { 'arm64'; break }
-        default { throw "tunn has no build for this processor architecture ($osArch)." }
+    $seen = @()
+    $arch = $null
+    foreach ($name in $sources.Keys) {
+        $value = try { & $sources[$name] } catch { $null }
+        if (-not $value) { continue }
+        $seen += "$name=$value"
+        $arch = switch -Regex ("$value") {
+            '^(AMD64|X64)$' { 'amd64'; break }
+            '^(ARM64|Arm64)$' { 'arm64'; break }
+            default { $null }
+        }
+        if ($arch) { break }
+    }
+    if (-not $arch) {
+        throw "tunn has no build for this processor architecture ($($seen -join ', ')). Builds exist for 64-bit Intel/AMD (amd64) and Arm (arm64)."
     }
     $asset = "tunn-windows-$arch.exe"
 
     $installDir = if ($env:TUNN_INSTALL_DIR) { $env:TUNN_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\tunn' }
     $target = Join-Path $installDir 'tunn.exe'
 
-    # A running tunn.exe cannot be overwritten.
-    $running = Get-Process -Name tunn -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target }
-    if ($running) {
-        throw "tunn is running (pid $($running.Id -join ', ')). Run 'tunn stop', then run the installer again."
+    # A running tunn.exe cannot be overwritten. Test by opening it for writing:
+    # a 32-bit PowerShell cannot see the paths of 64-bit processes.
+    if (Test-Path $target) {
+        try {
+            [System.IO.File]::Open($target, 'Open', 'ReadWrite', 'None').Close()
+        } catch {
+            throw "tunn is running, so $target cannot be replaced. Run 'tunn stop', then run the installer again."
+        }
     }
 
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
