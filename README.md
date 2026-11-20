@@ -20,7 +20,8 @@
 - 🔧 **Native SSH Sessions**: Spawns the system `ssh` binary for each mapping, so keys and config behave exactly like your shell
 - 🎚️ **Per-Port Processes**: Launches one PID per port to pave the way for fine-grained lifecycle controls
 - 🔁 **Auto-Reconnect**: If a tunnel drops unexpectedly, it's retried automatically with exponential backoff
-- ♻️ **Live Reload**: `tunn reload` (or `SIGHUP`) re-reads `~/.tunnrc` and applies changes without disturbing unaffected tunnels
+- 🖥️ **Cross-Platform**: Runs on macOS, Linux and Windows
+- ♻️ **Live Reload**: `tunn reload` (or `SIGHUP` on macOS/Linux) re-reads `~/.tunnrc` and applies changes without disturbing unaffected tunnels
 
 
 
@@ -33,9 +34,31 @@
 
 ### Quick Install
 
+macOS and Linux:
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/aonghus/tunn/main/scripts/install.sh | sh
 ```
+
+Windows (PowerShell, no administrator rights needed):
+
+```powershell
+irm https://raw.githubusercontent.com/aonghus/tunn/main/scripts/install.ps1 | iex
+```
+
+This installs `tunn.exe` to `%LOCALAPPDATA%\Programs\tunn` and adds it to your user `PATH`.
+
+### Download a Binary
+
+Each [release](https://github.com/aonghus/tunn/releases/latest) has binaries for:
+
+| OS | amd64 | arm64 |
+|---|---|---|
+| Linux | `tunn-linux-amd64` | `tunn-linux-arm64` |
+| macOS | `tunn-darwin-amd64` | `tunn-darwin-arm64` |
+| Windows | `tunn-windows-amd64.exe` | `tunn-windows-arm64.exe` |
+
+`SHA256SUMS` in the same release lists their checksums.
 
 ### From Go Install
 
@@ -54,7 +77,7 @@ sudo mv tunn /usr/local/bin/
 
 ## Configuration
 
-Create a `~/.tunnrc` file in your home directory:
+Create a `~/.tunnrc` file in your home directory (`%USERPROFILE%\.tunnrc` on Windows):
 
 ```yaml
 tunnels:
@@ -88,7 +111,9 @@ tunnels:
 
 - `tunnels`: Map of tunnel names
 - `host`: SSH host alias from `~/.ssh/config`
-- `ports`: List of port mappings in `local:remote` format
+- `ports`: List of port mappings, each forwarded with `ssh -L`:
+  - `3000` or `3000:4000` (`local:remote`) connects to `127.0.0.1` on the remote host
+  - `5432:db.internal:5432` (`local:host:remote`) connects to `host` as seen from the remote host, e.g. `localhost`, a private hostname, or `[::1]` for IPv6
 - `dynamic_ports` (optional): List of local ports for SOCKS dynamic application-level forwarding (SSH `-D`)
 - `user` (optional): SSH username (overrides `~/.ssh/config`)
 - `identity_file` (optional): Path to SSH private key
@@ -123,7 +148,7 @@ tunn --detach
 tunn --detach api db
 ```
 
-The CLI respawns itself as a daemon, stores metadata under `$XDG_RUNTIME_DIR/tunn` (or `~/.cache/tunn` when the runtime dir is unavailable), and immediately returns control to the terminal.
+The CLI respawns itself as a daemon, stores metadata under `$XDG_RUNTIME_DIR/tunn` (or `~/.cache/tunn` when the runtime dir is unavailable; `%USERPROFILE%\.cache\tunn` on Windows), and immediately returns control to the terminal.
 
 ### Check Daemon Status
 
@@ -151,7 +176,7 @@ tunn reload
 
 Re-reads `~/.tunnrc` and applies the changes to a running daemon without disturbing unaffected tunnels: new tunnels are started, removed tunnels are stopped, and tunnels whose definition changed are restarted — tunnels left untouched in the config keep their existing connection. `tunn reload` respects whichever subset of tunnels the daemon was originally launched with (e.g. `tunn --detach api db` only reloads `api`/`db`).
 
-The same reload logic runs when a running `tunn` process (foreground or daemon) receives `SIGHUP`:
+On macOS and Linux, the same reload logic runs when a running `tunn` process (foreground or daemon) receives `SIGHUP`:
 
 ```bash
 kill -HUP $(cat "$XDG_RUNTIME_DIR/tunn/daemon.pid")
@@ -193,16 +218,22 @@ Host database
 ## Requirements
 
 - Go 1.21 or higher (for building)
-- OpenSSH client (`ssh` command)
-- Valid SSH configuration
-- macOS and Linux are supported today; Windows support is planned but not available yet
+- OpenSSH client (`ssh` command). On Windows 10 and 11 it is built in; if `ssh` is missing, add **OpenSSH Client** under Settings > System > Optional features
+- Valid SSH configuration (`~/.ssh/config`, or `%USERPROFILE%\.ssh\config` on Windows)
+- macOS, Linux, or Windows 10 (1803) or later
+
+### Windows Notes
+
+- When `lsof` is not available (always on Windows), port conflicts are detected by trying to bind the port, so `tunn status` reports "being used by another process" without naming it.
+- The daemon runs without a console window and keeps running after the terminal that started it closes. Use `tunn stop` to end it.
+- `SIGHUP` does not exist on Windows; use `tunn reload`.
 
 ## Daemon Runtime Files
 
 While running in detached mode, `tunn` stores the following files in its runtime directory:
 
 - `daemon.pid` – PID of the active daemon; used to prevent duplicate launches.
-- `daemon.sock` – Unix domain socket for control commands (e.g., `tunn status`).
+- `daemon.sock` – Unix domain socket for control commands (e.g., `tunn status`). Windows supports these natively since Windows 10 1803.
 - `daemon.log` – Aggregated stdout/stderr from the daemon process.
 
 The directory is created with `0700` permissions, and files are cleaned up automatically when the daemon exits or when stale state is detected on the next launch.

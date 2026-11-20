@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,10 +63,55 @@ func dynamicLabel(port string) string {
 }
 
 func (e *RealSSHExecutor) executePortSSH(ctx context.Context, tunnelName string, tunnel config.Tunnel, portMapping string) error {
-	ports := expandPort(portMapping, ":")
-	local, remote := ports[0], ports[1]
-	forwardArgs := []string{"-L", fmt.Sprintf("%s:localhost:%s", local, remote)}
-	return e.executeSSH(ctx, tunnelName, tunnel, portMapping, forwardArgs)
+	spec, err := LocalForward(portMapping)
+	if err != nil {
+		if e.OnStatusChange != nil {
+			e.OnStatusChange(tunnelName, portMapping, fmt.Sprintf("error - %s", err))
+		}
+		return err
+	}
+	return e.executeSSH(ctx, tunnelName, tunnel, portMapping, []string{"-L", spec})
+}
+
+// DefaultRemoteHost is where forwards connect on the remote side when the
+// mapping does not name a host. It is 127.0.0.1 rather than "localhost"
+// because some sshd builds (notably Windows OpenSSH) resolve localhost to ::1
+// only, which fails against services that listen on IPv4 alone.
+const DefaultRemoteHost = "127.0.0.1"
+
+// LocalForward converts a port mapping from the config into the argument for
+// ssh -L. Accepted forms:
+//
+//	3000              -> 3000:127.0.0.1:3000
+//	3000:4000         -> 3000:127.0.0.1:4000
+//	3000:db:5432      -> 3000:db:5432
+//	3000:[::1]:3000   -> 3000:[::1]:3000 (IPv6 hosts may also be written bare)
+func LocalForward(mapping string) (string, error) {
+	parts := strings.Split(strings.TrimSpace(mapping), ":")
+	var local, host, remote string
+	switch len(parts) {
+	case 1:
+		local, host, remote = parts[0], DefaultRemoteHost, parts[0]
+	case 2:
+		local, host, remote = parts[0], DefaultRemoteHost, parts[1]
+	default:
+		local, remote = parts[0], parts[len(parts)-1]
+		host = strings.Join(parts[1:len(parts)-1], ":")
+	}
+
+	for _, p := range []string{local, remote} {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("invalid port mapping %q: %q is not a port number", mapping, p)
+		}
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	if host == "" {
+		return "", fmt.Errorf("invalid port mapping %q: empty remote host", mapping)
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return local + ":" + host + ":" + remote, nil
 }
 
 func (e *RealSSHExecutor) executeDynamicSSH(ctx context.Context, tunnelName string, tunnel config.Tunnel, port string) error {
@@ -208,14 +254,6 @@ func (e *RealSSHExecutor) runSSHOnce(ctx context.Context, tunnelName string, tun
 	}
 }
 
-func expandPort(mapping string, sep string) []string {
-	parts := strings.Split(mapping, sep)
-	if len(parts) == 1 {
-		return []string{parts[0], parts[0]}
-	}
-	return parts[:2]
-}
-
 type MockSSHExecutor struct {
 	mu             sync.Mutex
 	Commands       [][]string
@@ -235,9 +273,11 @@ func (m *MockSSHExecutor) CommandsSnapshot() [][]string {
 func (m *MockSSHExecutor) Execute(ctx context.Context, name string, tunnel config.Tunnel) error {
 	args := []string{"ssh", "-N"}
 	for _, portMapping := range tunnel.Ports {
-		ports := expandPort(portMapping, ":")
-		local, remote := ports[0], ports[1]
-		args = append(args, "-L", fmt.Sprintf("%s:localhost:%s", local, remote))
+		spec, err := LocalForward(portMapping)
+		if err != nil {
+			return err
+		}
+		args = append(args, "-L", spec)
 	}
 	for _, port := range tunnel.DynamicPorts {
 		args = append(args, "-D", port)

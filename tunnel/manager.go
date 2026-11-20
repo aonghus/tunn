@@ -163,18 +163,28 @@ func (m *Manager) ensurePortsAvailable(tunnelName string, tunnel config.Tunnel) 
 	conflicts := make(map[string]string)
 	var conflictMessages []string
 
+	// Errors are reported as the mapping's status too; otherwise it would sit
+	// at "pending" with nothing explaining why the tunnel never started.
+	fail := func(mapping string, err error) error {
+		m.reportStatus(tunnelName, mapping, fmt.Sprintf("error - %s", err))
+		return err
+	}
+
 	for _, mapping := range mappings {
 		localPort, err := extractLocalPort(mapping)
 		if err != nil {
-			return fmt.Errorf("invalid port mapping %q: %w", mapping, err)
+			return fail(mapping, fmt.Errorf("invalid port mapping %q: %w", mapping, err))
 		}
 
 		process, err := m.checker.findListener(localPort)
 		if err != nil {
-			return err
+			return fail(mapping, err)
 		}
 		if process != nil {
 			message := fmt.Sprintf("port %s is being used by \"%s\" (pid: %d)", localPort, process.command, process.pid)
+			if process.pid == 0 {
+				message = fmt.Sprintf("port %s is being used by another process", localPort)
+			}
 			conflicts[mapping] = message
 			conflictMessages = append(conflictMessages, message)
 		}

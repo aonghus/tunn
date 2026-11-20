@@ -30,6 +30,14 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            ext: .exe
           - goos: darwin
             goarch: amd64
           - goos: darwin
@@ -50,13 +58,13 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p bin
-          go build -ldflags "-s -w -X github.com/aonghus/tunn/version.Version=${GITHUB_REF_NAME}" -o bin/tunn-${{ matrix.goos }}-${{ matrix.goarch }} .
+          go build -ldflags "-s -w -X github.com/aonghus/tunn/version.Version=${GITHUB_REF_NAME}" -o bin/tunn-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tunn-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: bin/tunn-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/tunn-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   publish:
     needs: build
@@ -68,6 +76,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: cd dist && sha256sum tunn-* > SHA256SUMS
 
       - name: Publish release
         uses: softprops/action-gh-release@v1

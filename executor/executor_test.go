@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -39,11 +40,11 @@ func TestMockSSHExecutor(t *testing.T) {
 		t.Error("Command should contain 'ssh -N'")
 	}
 
-	if !strings.Contains(cmdStr, "-L 8080:localhost:8080") {
+	if !strings.Contains(cmdStr, "-L 8080:127.0.0.1:8080") {
 		t.Error("Command should contain port mapping for 8080")
 	}
 
-	if !strings.Contains(cmdStr, "-L 9090:localhost:9091") {
+	if !strings.Contains(cmdStr, "-L 9090:127.0.0.1:9091") {
 		t.Error("Command should contain port mapping for 9090")
 	}
 
@@ -160,8 +161,12 @@ func TestMockSSHExecutorWithDynamicPorts(t *testing.T) {
 
 func TestRealSSHExecutorReconnectsOnDrop(t *testing.T) {
 	dir := t.TempDir()
-	scriptPath := filepath.Join(dir, "ssh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	// A fake ssh that exits immediately, simulating a dropped connection.
+	scriptPath, script := filepath.Join(dir, "ssh"), "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		scriptPath, script = filepath.Join(dir, "ssh.bat"), "@exit /b 0\r\n"
+	}
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write fake ssh script: %v", err)
 	}
 
@@ -203,24 +208,36 @@ func TestRealSSHExecutorReconnectsOnDrop(t *testing.T) {
 	}
 }
 
-func TestExpandPort(t *testing.T) {
+func TestLocalForward(t *testing.T) {
 	tests := []struct {
-		input    string
-		expected []string
+		input string
+		want  string
 	}{
-		{"8080:8081", []string{"8080", "8081"}},
-		{"3000", []string{"3000", "3000"}},
-		{"5432:5433", []string{"5432", "5433"}},
+		{"3000", "3000:127.0.0.1:3000"},
+		{"8080:8081", "8080:127.0.0.1:8081"},
+		{" 5432:5433 ", "5432:127.0.0.1:5433"},
+		{"3000:127.0.0.1:3000", "3000:127.0.0.1:3000"},
+		{"3000:localhost:3000", "3000:localhost:3000"},
+		{"5432:db.internal:5432", "5432:db.internal:5432"},
+		{"3000:[::1]:3000", "3000:[::1]:3000"},
+		{"3000:::1:3000", "3000:[::1]:3000"},
 	}
-
 	for _, tt := range tests {
-		result := expandPort(tt.input, ":")
-		if len(result) != 2 {
-			t.Errorf("Expected 2 elements, got %d", len(result))
+		got, err := LocalForward(tt.input)
+		if err != nil {
+			t.Errorf("LocalForward(%q) returned error: %v", tt.input, err)
 			continue
 		}
-		if result[0] != tt.expected[0] || result[1] != tt.expected[1] {
-			t.Errorf("For %s: expected %v, got %v", tt.input, tt.expected, result)
+		if got != tt.want {
+			t.Errorf("LocalForward(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestLocalForwardRejectsInvalid(t *testing.T) {
+	for _, input := range []string{"", "abc", "3000:abc", "0:3000", "3000:70000", "3000::3000", "3000:[]:3000", "db:3000:3000"} {
+		if got, err := LocalForward(input); err == nil {
+			t.Errorf("LocalForward(%q) = %q, expected an error", input, got)
 		}
 	}
 }

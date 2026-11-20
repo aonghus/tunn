@@ -123,6 +123,7 @@ func launchDaemon(paths daemon.Paths, tunnelNames []string) error {
 
 	cmd := exec.Command(executable, args...)
 	cmd.Env = os.Environ()
+	detachDaemon(cmd)
 
 	logFile, err := os.OpenFile(paths.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
