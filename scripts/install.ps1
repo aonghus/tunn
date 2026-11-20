@@ -80,11 +80,47 @@
         Write-Warning 'ssh was not found. Install it under Settings > System > Optional features > OpenSSH Client.'
     }
 
+    # Starter config, only if the user has none; an existing one is never touched.
+    $config = Join-Path $HOME '.tunnrc'
+    $createdConfig = $false
+    if (-not (Test-Path $config)) {
+        $template = @(
+            '# tunn configuration: https://github.com/aonghus/tunn#configuration'
+            '#'
+            '# Each tunnel connects to an ssh host (a Host from ~/.ssh/config, or'
+            '# user@server) and forwards local ports to ports on the remote side.'
+            'tunnels:'
+            '  example:'
+            '    host: myserver              # change to your server'
+            '    ports:'
+            '      - 8080:80                 # localhost:8080 -> port 80 on the server'
+            '      # - 5432:db.internal:5432  # localhost:5432 -> db.internal:5432, reached via the server'
+        )
+        # ASCII: Windows PowerShell 5.1's UTF8 encoding would add a byte-order mark.
+        Set-Content -Path $config -Value $template -Encoding ascii
+        $createdConfig = $true
+    }
+
     Write-Host ''
-    Write-Host 'Next steps:'
-    Write-Host '  1. Open a new terminal so other windows see the updated PATH.'
-    Write-Host '  2. Check that ssh to your server works, e.g.  ssh myserver'
-    Write-Host '  3. Describe your tunnels in  notepad $HOME\.tunnrc'
-    Write-Host '  4. Run  tunn --detach  then  tunn status'
-    Write-Host "  Guide: https://github.com/$repo#windows"
+    Write-Host 'Set up an ssh key (skip if ssh to your server already works without a password):'
+    Write-Host '  ssh-keygen -t rsa -b 4096'
+    Write-Host '  Get-Content $HOME\.ssh\id_rsa.pub | ssh user@server.example.com "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"'
+    Write-Host ''
+    if ($createdConfig) {
+        Write-Host "Created a starter config at $config. Edit it to describe your tunnels."
+    } else {
+        Write-Host "Your existing $config was left unchanged."
+    }
+    Write-Host ''
+    Write-Host 'Then, in a new terminal:'
+    Write-Host '  tunn -d        start your tunnels in the background (same as tunn --detach)'
+    Write-Host '  tunn status    show their state'
+    Write-Host '  tunn stop      stop them'
+    Write-Host ''
+    Write-Host "Guide: https://github.com/$repo#windows"
+
+    # Open the new config for editing. Skipped in CI or when TUNN_NO_EDITOR is set.
+    if ($createdConfig -and -not $env:CI -and -not $env:TUNN_NO_EDITOR) {
+        Start-Process notepad.exe -ArgumentList "`"$config`""
+    }
 }

@@ -103,6 +103,17 @@ jobs:
           $version = (tunn version | Out-String).Trim()
           Check ($version -match '^v\d+\.\d+\.\d+') "tunn version runs (got '$version')"
 
+          # The first install writes a starter config that tunn can parse; the second leaves it alone.
+          $config = "$env:USERPROFILE\.tunnrc"
+          Check (Test-Path $config) "starter config created at $config"
+          # Continue: Windows PowerShell 5.1 turns redirected stderr into errors, which Stop would throw.
+          $parse = (& { $ErrorActionPreference = 'Continue'; tunn -d nosuchtunnel 2>&1 } | Out-String).Trim()
+          Check ($parse -match 'no tunnels found matching') "tunn parses the starter config (got '$parse')"
+          Add-Content -Path $config -Value '# edited by user' -Encoding ascii
+          $again = Get-Content -Raw scripts/install.ps1 | Invoke-Expression *>&1 | Out-String
+          Check ($again -match 'left unchanged' -and (Get-Content -Raw $config) -match 'edited by user') "reinstall keeps an existing config"
+          Check (-not (Get-Process notepad -ErrorAction SilentlyContinue)) "notepad not opened in CI"
+
           # Upgrading while tunn runs must stop with advice, not a raw file error.
           Set-Content -Path "$env:USERPROFILE\.tunnrc" -Encoding ascii -Value "tunnels:`n  t:`n    host: unreachable.invalid`n    ports:`n      - 18999:18999"
           tunn --detach t | Out-Host
