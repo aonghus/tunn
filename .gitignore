@@ -1,0 +1,9 @@
+# Binary from `go build` in the repo root
+/tunn
+/tunn.exe
+
+# Local cross-compiled release builds
+/dist/
+
+# Go build cache used by CI (`GOCACHE=$(pwd)/.cache`)
+/.cache/
