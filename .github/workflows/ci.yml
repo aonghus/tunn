@@ -60,6 +60,13 @@ jobs:
         os: [windows-latest, windows-11-arm]
         # powershell = Windows PowerShell 5.1, the version every Windows machine has.
         shell: [pwsh, powershell]
+        include:
+          # 32-bit Windows PowerShell: reports x86 for itself, so the installer
+          # must still pick the machine's real architecture.
+          - os: windows-latest
+            shell: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -command ". '{0}'"
+          - os: windows-11-arm
+            shell: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -command ". '{0}'"
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -67,6 +74,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Shell
+        run: Write-Host "PowerShell $($PSVersionTable.PSVersion), 64-bit process: $([Environment]::Is64BitProcess), PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
 
       # Piped to iex, as in the README one-liner. Installs the latest release.
       - name: Install
