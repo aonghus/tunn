@@ -236,7 +236,7 @@ Skip this if you already have a key in `$HOME\.ssh`.
 ssh-keygen -t rsa -b 4096
 ```
 
-Press Enter to accept the default location (`$HOME\.ssh\id_rsa`), and choose a passphrase if you want one. `ssh-keygen -t ed25519` also works and gives a shorter key; if you use it, replace `id_rsa` with `id_ed25519` below. Avoid `-t dsa`: current OpenSSH no longer accepts DSA keys.
+Press Enter to accept the default location (`$HOME\.ssh\id_rsa`), and choose empty for passwordless. `ssh-keygen -t ed25519` also works and gives a shorter key; if you use it, replace `id_rsa` with `id_ed25519` below. Avoid `-t dsa`: current OpenSSH no longer accepts DSA keys.
 
 ### 2. Copy the key to the server
 
